@@ -1,0 +1,18 @@
+---
+Checks: >
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-static-accessed-through-instance,
+  -readability-redundant-typename,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-unchecked-optional-access,
+  -modernize-use-nodiscard
+WarningsAsErrors: ''
+HeaderFilterRegex: 'framework/.*'
+FormatStyle: file

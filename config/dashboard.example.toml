@@ -1,0 +1,14 @@
+# Example dashboard configuration.
+# Copy to config.local.toml (git-ignored) or pass the path on the command line:
+#   xmake run dashboard config.local.toml
+#
+# Environment overrides use the FW_ prefix and the dotted key in upper case:
+#   FW_SERVER_PORT=9000 xmake run dashboard
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[log]
+level = "info"
+json = false

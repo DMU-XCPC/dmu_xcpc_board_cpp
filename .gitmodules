@@ -1,0 +1,12 @@
+[submodule "third_party/stdexec"]
+	path = third_party/stdexec
+	url = https://github.com/NVIDIA/stdexec.git
+[submodule "third_party/tomlplusplus"]
+	path = third_party/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git
+[submodule "third_party/asio"]
+	path = third_party/asio
+	url = https://github.com/chriskohlhoff/asio.git
+[submodule "third_party/picohttpparser"]
+	path = third_party/picohttpparser
+	url = https://github.com/h2o/picohttpparser.git

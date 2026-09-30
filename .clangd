@@ -1,0 +1,10 @@
+# clangd configuration. The compilation database is produced by the primary
+# (xmake) build:
+#
+#   xmake f -m debug && xmake project -k compile_commands
+#
+# This writes compile_commands.json to the repository root. CMake users can
+# instead set CompilationDatabase to `build-cmake` (also generated with
+# CMAKE_EXPORT_COMPILE_COMMANDS=ON).
+CompileFlags:
+  CompilationDatabase: .
