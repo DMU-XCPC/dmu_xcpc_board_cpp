@@ -34,3 +34,17 @@ TEST(HttpResponse, ReasonPhrases) {
     EXPECT_EQ(fw::http::reason_phrase(404), "Not Found");
     EXPECT_EQ(fw::http::reason_phrase(500), "Internal Server Error");
 }
+
+TEST(HttpResponse, RedirectSetsLocation) {
+    auto const response = fw::http::Response::redirect(302, "/login");
+    ASSERT_TRUE(response.header("Location").has_value());
+    EXPECT_EQ(*response.header("Location"), "/login");
+    EXPECT_EQ(response.status(), 302);
+}
+
+TEST(HttpResponse, SerializeWithoutBodyKeepsContentLength) {
+    auto const response = fw::http::Response::text(200, "hello");
+    auto const text = response.serialize(false);
+    EXPECT_NE(text.find("Content-Length: 5\r\n"), std::string::npos);
+    EXPECT_EQ(text.find("hello"), std::string::npos);
+}

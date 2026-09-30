@@ -76,9 +76,9 @@ std::optional<std::string_view> Response::header(std::string_view name) const {
     return std::nullopt;
 }
 
-std::string Response::serialize() const {
+std::string Response::serialize(bool include_body) const {
     std::string out;
-    out.reserve(128 + body_.size());
+    out.reserve(128 + (include_body ? body_.size() : 0));
 
     out += "HTTP/1.1 ";
     out += std::to_string(status_);
@@ -104,7 +104,9 @@ std::string Response::serialize() const {
     }
 
     out += "\r\n";
-    out += body_;
+    if (include_body) {
+        out += body_;
+    }
     return out;
 }
 
@@ -120,6 +122,16 @@ Response Response::json(int status, std::string body) {
     response.set_content_type("application/json");
     response.set_body(std::move(body));
     return response;
+}
+
+Response Response::redirect(int status, std::string location) {
+    Response response{status};
+    response.set_header("Location", std::move(location));
+    return response;
+}
+
+Response Response::no_content() {
+    return Response{204};
 }
 
 } // namespace fw::http

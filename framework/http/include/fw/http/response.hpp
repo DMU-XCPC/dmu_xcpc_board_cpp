@@ -31,10 +31,14 @@ public:
     }
     [[nodiscard]] std::optional<std::string_view> header(std::string_view name) const;
 
-    [[nodiscard]] std::string serialize() const;
+    // Serializes the response. When `include_body` is false only the status line
+    // and headers are emitted (used for HEAD responses).
+    [[nodiscard]] std::string serialize(bool include_body = true) const;
 
     static Response text(int status, std::string body);
     static Response json(int status, std::string body);
+    static Response redirect(int status, std::string location);
+    static Response no_content();
 
 private:
     int status_ = 200;
