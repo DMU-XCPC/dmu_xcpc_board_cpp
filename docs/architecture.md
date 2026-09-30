@@ -88,13 +88,17 @@ serialization; it exposes no parser types.
   `RouteGroup` shares a prefix and a middleware stack.
 - `Server`: binds a `fw::net::tcp_listener` and runs an accept loop. Each
   connection is handled by a detached coroutine that reads into a buffer,
-  parses, dispatches and writes the response. It supports HTTP/1.1 keep-alive,
-  answers `400` on malformed requests and `413` beyond
-  `max_request_bytes`, and `stop()` closes the acceptor while in-flight
-  connections drain.
-
-Known limitation: there is no structured join of in-flight connection tasks
-yet (that will use an async scope for graceful shutdown).
+  parses, dispatches and writes the response. It supports HTTP/1.1 keep-alive, a
+  per-connection idle timeout, a keep-alive request cap, `HEAD` responses without
+  a body, `400` on malformed requests and `413` beyond `max_request_bytes`.
+  `stop()` stops accepting, finishes the main loop and lets in-flight
+  connections drain; `wait()` blocks until they have.
+  `start()` is **non-blocking** (worker threads only) — the escape hatch that
+  keeps the calling thread in control. `run()` blocks driving the server's own
+  `fw::run_loop` (exposed via `main_scheduler()`, so workers can hand work to the
+  main thread) until `stop()`. Signals are deliberately **out of scope** (they
+  are process-level): the application installs them, e.g. via
+  `fw::net::on_signal(io, {SIGINT, SIGTERM}, [&] { server.stop(); })`.
 
 ## Dependency policy
 

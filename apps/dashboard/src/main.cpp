@@ -5,7 +5,6 @@
 #include "fw/server/server.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <exception>
@@ -32,13 +31,6 @@ template <> struct fw::config_schema<app::server_settings> {
 };
 
 namespace {
-
-volatile std::sig_atomic_t g_stop = 0;
-
-void on_signal(int signum) {
-    (void)signum;
-    g_stop = 1;
-}
 
 fw::Config load_config(int argc, char** argv) {
     if (argc > 1) {
@@ -89,18 +81,13 @@ int main(int argc, char** argv) {
         fw::server::Server server{io, fw::server::ServerOptions{settings->host, settings->port}};
         register_routes(server.router());
 
-        std::signal(SIGINT, on_signal);
-        std::signal(SIGTERM, on_signal);
-
         server.start();
         fw::log::info("listening on " + settings->host + ":" + std::to_string(server.port()));
 
-        while (g_stop == 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
+        fw::net::on_signal(io, {SIGINT, SIGTERM}, [&server] { server.stop(); });
+        server.run();
         fw::log::info("shutting down");
-        server.stop();
+        server.wait();
         return 0;
     } catch (std::exception const& error) {
         fw::log::error(std::string{"fatal: "} + error.what());

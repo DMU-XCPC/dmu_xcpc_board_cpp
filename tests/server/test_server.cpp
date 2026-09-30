@@ -8,7 +8,6 @@
 #include <chrono>
 #include <string>
 #include <thread>
-
 namespace {
 
 void configure_routes(fw::server::Router& router) {
@@ -112,4 +111,65 @@ TEST(Server, HandlesKeepAlive) {
 
     server.stop();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+TEST(Server, HeadHasNoBody) {
+    fw::net::io_context io{2};
+    fw::server::Server server{io, fw::server::ServerOptions{"127.0.0.1", 0}};
+    configure_routes(server.router());
+    server.start();
+
+    auto const response = send_and_receive(
+        server.port(), "HEAD /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+
+    EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
+    EXPECT_NE(response.find("Content-Length: 15"), std::string::npos);
+    EXPECT_EQ(response.find(R"({"status":"ok"})"), std::string::npos);
+
+    server.stop();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+TEST(Server, EscapeHatchStartWithoutRun) {
+    fw::net::io_context io{2};
+    fw::server::Server server{io, fw::server::ServerOptions{"127.0.0.1", 0}};
+    configure_routes(server.router());
+    server.start();
+    ASSERT_NE(server.port(), 0);
+
+    auto const response = send_and_receive(
+        server.port(), "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+    EXPECT_NE(response.find("HTTP/1.1 200 OK"), std::string::npos);
+
+    server.stop();
+    server.wait();
+}
+
+TEST(Server, GracefulDrainClosesIdleConnections) {
+    fw::net::io_context io{2};
+    fw::server::ServerOptions options{"127.0.0.1", 0};
+    options.idle_timeout = std::chrono::milliseconds{100};
+    fw::server::Server server{io, options};
+    configure_routes(server.router());
+    server.start();
+
+    asio::io_context client;
+    asio::ip::tcp::socket socket{client};
+    std::error_code ec;
+    socket.connect({asio::ip::make_address("127.0.0.1"), server.port()}, ec); // NOLINT
+    ASSERT_FALSE(ec);
+
+    std::string const request = "GET /health HTTP/1.1\r\nHost: x\r\n\r\n";
+    [[maybe_unused]] auto const written = asio::write(socket, asio::buffer(request), ec);
+
+    std::string response;
+    [[maybe_unused]] auto const headers =
+        asio::read_until(socket, asio::dynamic_buffer(response), "\r\n\r\n", ec);
+    EXPECT_NE(response.find("200 OK"), std::string::npos);
+
+    server.stop();
+    server.wait();
+    EXPECT_EQ(server.active_connections(), 0U);
+
+    socket.close(ec); // NOLINT
 }
