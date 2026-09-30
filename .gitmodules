@@ -10,3 +10,6 @@
 [submodule "third_party/picohttpparser"]
 	path = third_party/picohttpparser
 	url = https://github.com/h2o/picohttpparser.git
+[submodule "third_party/unordered_dense"]
+	path = third_party/unordered_dense
+	url = https://github.com/martinus/unordered_dense.git

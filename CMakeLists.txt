@@ -31,6 +31,10 @@ target_include_directories(asio SYSTEM INTERFACE
 target_compile_definitions(asio INTERFACE ASIO_STANDALONE=1)
 target_link_libraries(asio INTERFACE Threads::Threads)
 
+add_library(unordered_dense INTERFACE)
+target_include_directories(unordered_dense SYSTEM INTERFACE
+    "${CMAKE_SOURCE_DIR}/third_party/unordered_dense/include")
+
 add_subdirectory(framework/core)
 add_subdirectory(framework/execution)
 add_subdirectory(framework/net)

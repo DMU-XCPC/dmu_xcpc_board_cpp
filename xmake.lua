@@ -46,6 +46,10 @@ target("asio")
     add_defines("ASIO_STANDALONE=1", {public = true})
     add_links("pthread")
 
+target("unordered_dense")
+    set_kind("headeronly")
+    add_sysincludedirs("third_party/unordered_dense/include", {public = true})
+
 -- Framework ---------------------------------------------------------------
 
 target("fw_core")
@@ -81,7 +85,8 @@ target("fw_server")
     set_kind("static")
     add_files("framework/server/src/*.cpp")
     add_includedirs("framework/server/include", {public = true})
-    add_deps("fw_http", "fw_net")
+    add_deps("fw_core", "fw_http", "fw_net", "unordered_dense")
+    add_links("pcre2-8")
 
 -- Applications ------------------------------------------------------------
 

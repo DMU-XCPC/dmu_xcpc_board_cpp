@@ -40,6 +40,7 @@ std::uint16_t Server::port() const {
 
 void Server::start() {
     if (listener_) {
+        [[maybe_unused]] auto const built = router_.rebuild();
         detach(context_, accept_loop());
     }
 }
@@ -90,7 +91,12 @@ fw::task<void> Server::handle(fw::net::tcp_socket socket) {
 
         buffer.erase(0, parsed.consumed);
 
-        auto response = router_.dispatch(request);
+        fw::http::Response response;
+        try {
+            response = co_await router_.dispatch(request);
+        } catch (...) {
+            response = fw::http::Response::text(500, "internal server error\n");
+        }
         bool const keep_alive = !wants_close(request);
         if (!keep_alive) {
             response.set_header("Connection", "close");

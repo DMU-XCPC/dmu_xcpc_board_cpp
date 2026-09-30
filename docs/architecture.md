@@ -72,11 +72,20 @@ serialization; it exposes no parser types.
 
 `framework/server` provides `fw::server::Router` and `fw::server::Server`.
 
-- `Router`: routes are keyed by method and a path pattern that may contain
-  `:name` segments. `dispatch` runs the first matching handler, returns `404`
-  when nothing matches, or `405` with an `Allow` header when only the method
-  differs. Handlers are currently synchronous
-  (`Response(Request const&, RouteParams const&)`).
+- `Router`: compiles route patterns into an immutable segment tree held behind
+  a `std::atomic<std::shared_ptr<const RouteTable>>`. `rebuild()` swaps the table
+  atomically (hot reload) and `dispatch` reads it lock-free. Patterns support
+  literal segments, `:name`/`{name}` parameters, `{name:constraint}` (built-in
+  `int`/`uuid`/`slug`), `{name:*}` catch-all and `{name?}` optional segments.
+  Matching prefers literals, backtracks to parameters, and returns `404`, or
+  `405` with `Allow` (and automatic `OPTIONS`/`HEAD`-to-`GET` fallback).
+  `TrailingSlash` and case-insensitive policies are configurable, and captured
+  parameters are percent-decoded and written into stack storage.
+- Handlers return `HandlerResult`, a ready `Response` (zero-allocation fast path)
+  or an `fw::task<http::Response>`; a lambda returning either converts
+  implicitly, and `sync_handler`/`async_handler` are available for explicitness.
+  Middleware composes handlers (use `as_task` to await the next handler), and
+  `RouteGroup` shares a prefix and a middleware stack.
 - `Server`: binds a `fw::net::tcp_listener` and runs an accept loop. Each
   connection is handled by a detached coroutine that reads into a buffer,
   parses, dispatches and writes the response. It supports HTTP/1.1 keep-alive,
@@ -93,8 +102,9 @@ yet (that will use an async scope for graceful shutdown).
 - Prefer libraries already present in the environment.
 - Public headers under `framework/*/include/` must not expose third-party types
   (except `execution`, as noted above).
-- `stdexec`, `toml++`, `asio` and `picohttpparser` are git submodules under
-  `third_party/`, pinned to exact commits. Run
+- `stdexec`, `toml++`, `asio`, `picohttpparser` and `unordered_dense` are git
+  submodules under `third_party/`, pinned to exact commits. PCRE2 (`pcre2-8`)
+  and the other system libraries come from the distribution. Run
   `git submodule update --init --recursive` after cloning; a local HTTP/SOCKS
   proxy may be needed to fetch GitHub.
 
@@ -105,7 +115,7 @@ Chosen dependencies (phase 0):
 | Execution | stdexec (submodule, pinned) | via `fw::` aliases only |
 | I/O | Asio (submodule, pinned) | via `fw::net`, bridged with `<exec/asio>` |
 | HTTP parsing | picohttpparser (submodule, pinned) | wrapped by `fw::http`; chosen over llhttp, whose C is generated (needs `llparse`) |
-| Routing | own (`fw::server::Router`) | `:name` path parameters |
+| Routing | own (`fw::server::Router`) | `:name` / `{name}` / `{name:constraint}` / `{name:*}` / `{name?}` |
 | Logging | spdlog | wrapped by `fw::log` |
 | Configuration | toml++ (submodule) | wrapped by `fw::Config`, pimpl |
 | Testing | GoogleTest | tests only |

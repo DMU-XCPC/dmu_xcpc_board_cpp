@@ -12,8 +12,9 @@ add HTTP/storage/plugin code ahead of the roadmap unless asked.
 
 - **No comments in code** unless explaining a genuinely non-obvious decision.
 - **No third-party types in public headers** under `framework/*/include/`, with
-  the exception of `framework/execution/` and `framework/net/`, which expose
-  `stdexec`/Asio types behind `fw::` names.
+  the exception of `framework/execution/`, `framework/net/` and the
+  `framework/server/` router surface, which expose `stdexec`/Asio types behind
+  `fw::` names.
 - Business/HTTP/plugin interfaces must not leak library types either.
 - Public headers live in `include/<module>/`, implementations in `src/`.
 - Match the existing style; run the formatter before finishing.
@@ -95,6 +96,6 @@ picks up. CMake users may instead configure with CMake and point `.clangd` at
 Prefer libraries already available in the environment. The dependency manifest
 is `xmake.lua` (single source of truth); keep `CMakeLists.txt` in sync.
 Third-party dependencies that are not packaged on the target systems
-(`stdexec`, `toml++`, `asio`, `picohttpparser`) are git submodules under
-`third_party/`, pinned to exact commits. A local HTTP/SOCKS proxy may be
-required to fetch GitHub.
+(`stdexec`, `toml++`, `asio`, `picohttpparser`, `unordered_dense`) are git
+submodules under `third_party/`, pinned to exact commits. PCRE2 is expected as a
+system library. A local HTTP/SOCKS proxy may be required to fetch GitHub.

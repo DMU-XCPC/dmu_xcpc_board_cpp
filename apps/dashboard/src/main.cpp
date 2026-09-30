@@ -55,15 +55,16 @@ fw::Config load_config(int argc, char** argv) {
 }
 
 void register_routes(fw::server::Router& router) {
-    router.get("/health", [](fw::http::Request const&, fw::server::RouteParams const&) {
-        return fw::http::Response::json(200, R"({"status":"ok"})");
-    });
-    router.get("/api/contests/:id",
-               [](fw::http::Request const&, fw::server::RouteParams const& params) {
-                   auto const id = params.get("id").value_or("0");
+    router.get("/health",
+               fw::server::sync_handler([](fw::http::Request const&, fw::server::RouteContext&) {
+                   return fw::http::Response::json(200, R"({"status":"ok"})");
+               }));
+    router.get("/api/contests/:id", fw::server::sync_handler([](fw::http::Request const&,
+                                                                fw::server::RouteContext& context) {
+                   auto const id = context.params().get("id").value_or("0");
                    return fw::http::Response::json(200, std::string{R"({"contest":")"} +
                                                             std::string{id} + R"("})");
-               });
+               }));
 }
 
 } // namespace
