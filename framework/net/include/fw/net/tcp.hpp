@@ -90,4 +90,42 @@ private:
     asio::ip::tcp::acceptor acceptor_;
 };
 
+class tcp_connector {
+public:
+    tcp_connector(io_context& context, std::string host, std::uint16_t port)
+        : executor_(context.get_executor()), host_(std::move(host)), port_(std::to_string(port)) {}
+
+    tcp_connector(tcp_connector const&) = delete;
+    tcp_connector& operator=(tcp_connector const&) = delete;
+
+    // Resolves `host` and connects, yielding a `tcp_socket`. The connector must
+    // outlive the operation.
+    auto async_connect() {
+        auto socket = std::make_shared<asio::ip::tcp::socket>(executor_);
+        auto resolver = std::make_shared<asio::ip::tcp::resolver>(executor_);
+        return fw::just(socket, resolver, host_, port_) |
+               fw::let_value([](std::shared_ptr<asio::ip::tcp::socket> const& peer,
+                                std::shared_ptr<asio::ip::tcp::resolver> const& res,
+                                std::string const& host, std::string const& port) {
+                   return res->async_resolve(host, port,
+                                             experimental::execution::asio::use_sender) |
+                          fw::let_value(
+                              [peer, res](asio::ip::tcp::resolver::results_type const& results) {
+                                  return asio::async_connect(
+                                             *peer, results,
+                                             experimental::execution::asio::use_sender) |
+                                         fw::then([peer,
+                                                   res](asio::ip::tcp::endpoint const& /*unused*/) {
+                                             return tcp_socket{std::move(*peer)};
+                                         });
+                              });
+               });
+    }
+
+private:
+    asio::any_io_executor executor_;
+    std::string host_;
+    std::string port_;
+};
+
 } // namespace fw::net

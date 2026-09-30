@@ -27,6 +27,10 @@ public:
             return "unavailable";
         case Errc::io_error:
             return "io error";
+        case Errc::timed_out:
+            return "timed out";
+        case Errc::protocol_error:
+            return "protocol error";
         case Errc::internal:
             return "internal error";
         }

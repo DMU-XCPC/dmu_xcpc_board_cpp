@@ -15,6 +15,8 @@ enum class Errc : std::uint8_t {
     not_supported,
     unavailable,
     io_error,
+    timed_out,
+    protocol_error,
     internal,
 };
 
