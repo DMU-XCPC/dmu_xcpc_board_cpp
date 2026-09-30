@@ -41,6 +41,7 @@ add_subdirectory(framework/net)
 add_subdirectory(framework/http)
 add_subdirectory(framework/server)
 add_subdirectory(apps/dashboard)
+add_subdirectory(examples)
 
 if(FW_BUILD_TESTS)
     enable_testing()

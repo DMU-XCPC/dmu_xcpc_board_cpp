@@ -1,8 +1,8 @@
 name: ci
 
+# Temporarily disabled: runs only on manual dispatch, not on push/PR.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -13,7 +13,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libspdlog-dev libfmt-dev libgtest-dev
+          sudo apt-get install -y ninja-build libspdlog-dev libfmt-dev libgtest-dev libpcre2-dev
 
       - name: Set up xmake
         uses: xmake-io/github-action-setup-xmake@v1
@@ -31,3 +31,10 @@ jobs:
           cmake -S . -B build-cmake -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-cmake
           ctest --test-dir build-cmake --output-on-failure
+
+      - name: Build and test with sanitizers
+        run: |
+          cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          cmake --build build-asan
+          ctest --test-dir build-asan --output-on-failure

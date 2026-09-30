@@ -95,6 +95,14 @@ target("dashboard")
     add_files("apps/dashboard/src/*.cpp")
     add_deps("fw_core", "fw_execution", "fw_net", "fw_http", "fw_server")
 
+-- Examples ----------------------------------------------------------------
+
+target("router_demo")
+    set_kind("binary")
+    set_default(false)
+    add_files("examples/*.cpp")
+    add_deps("fw_server")
+
 -- Tests -------------------------------------------------------------------
 
 if has_config("tests") then
