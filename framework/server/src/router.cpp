@@ -1,13 +1,11 @@
 #include "fw/server/router.hpp"
 
-#include <ankerl/unordered_dense.h>
+#include "route_table.hpp"
 
-#include <algorithm>
 #include <array>
 #include <atomic>
-#include <cctype>
+#include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -19,99 +17,6 @@
 
 namespace fw::server {
 namespace {
-struct RouteNode;
-
-struct StringHash {
-    using is_transparent = void;
-    using is_avalanching = void;
-
-    auto operator()(std::string_view value) const noexcept -> std::uint64_t {
-        return ankerl::unordered_dense::hash<std::string_view>{}(value);
-    }
-    auto operator()(std::string const& value) const noexcept -> std::uint64_t {
-        return (*this)(std::string_view{value});
-    }
-};
-
-struct StringEq {
-    using is_transparent = void;
-
-    auto operator()(std::string_view lhs, std::string_view rhs) const noexcept -> bool {
-        return lhs == rhs;
-    }
-};
-
-using StaticChildren =
-    ankerl::unordered_dense::map<std::string, std::unique_ptr<RouteNode>, StringHash, StringEq>;
-
-struct RouteNode {
-    StaticChildren literals;
-    std::unique_ptr<RouteNode> param;
-    std::string param_name;
-    std::shared_ptr<Constraint const> param_constraint;
-    bool param_optional = false;
-    std::unique_ptr<RouteNode> catch_all;
-    std::string catch_all_name;
-    std::array<std::int32_t, kMethodCount> handlers;
-
-    RouteNode() {
-        handlers.fill(-1);
-    }
-
-    [[nodiscard]] bool has_handlers() const noexcept {
-        return std::ranges::any_of(handlers, [](std::int32_t handler) { return handler >= 0; });
-    }
-};
-
-struct CompiledRoute {
-    std::string name;
-    std::string pattern;
-    http::Method method;
-    std::vector<std::string> param_names;
-    Handler handler;
-};
-
-struct CompiledTable {
-    RouteNode root;
-    std::vector<CompiledRoute> routes;
-};
-
-struct PendingRoute {
-    http::Method method;
-    PathPattern pattern;
-    Handler handler;
-    std::string name;
-};
-
-RouteNode* literal_child(RouteNode& node, std::string const& text) {
-    auto it = node.literals.find(std::string_view{text});
-    if (it != node.literals.end()) {
-        return it->second.get();
-    }
-    auto [inserted, _] = node.literals.try_emplace(text, std::make_unique<RouteNode>());
-    return inserted->second.get();
-}
-
-std::string pattern_text(std::span<RouteSegment const> segments) {
-    std::string out;
-    for (auto const& segment : segments) {
-        out.push_back('/');
-        switch (segment.kind()) {
-        case RouteSegment::Kind::literal:
-            out += segment.text();
-            break;
-        case RouteSegment::Kind::parameter:
-            out.push_back(':');
-            out += segment.text();
-            break;
-        case RouteSegment::Kind::catch_all:
-            out.push_back('*');
-            out += segment.text();
-            break;
-        }
-    }
-    return out.empty() ? std::string{"/"} : out;
-}
 
 constexpr std::size_t kMaxSegments = 32;
 
@@ -147,27 +52,6 @@ std::string percent_decode(std::string_view value) {
     return out;
 }
 
-std::string_view literal_key(std::string_view value, bool case_insensitive,
-                             std::array<char, 128>& buffer) {
-    if (!case_insensitive || value.size() > buffer.size()) {
-        return value;
-    }
-    for (std::size_t i = 0; i < value.size(); ++i) {
-        buffer[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(value[i])));
-    }
-    return std::string_view{buffer.data(), value.size()};
-}
-
-std::string normalize_literal(std::string_view text, bool case_insensitive) {
-    std::string out{text};
-    if (case_insensitive) {
-        for (char& ch : out) {
-            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        }
-    }
-    return out;
-}
-
 std::size_t split_path_into(std::string_view path, std::string_view* out, std::size_t capacity) {
     std::size_t count = 0;
     std::size_t index = (!path.empty() && path.front() == '/') ? 1 : 0;
@@ -186,193 +70,6 @@ std::size_t split_path_into(std::string_view path, std::string_view* out, std::s
     return count;
 }
 
-struct MatchResult {
-    std::int32_t route = -1;
-    RouteNode const* mismatch = nullptr;
-    std::size_t param_count = 0;
-};
-
-using SegmentSpan = std::span<std::string_view const>;
-
-void match_node(RouteNode const& node, bool ci, SegmentSpan segments, std::size_t index,
-                std::string_view path, http::Method method, std::string_view* values,
-                MatchResult& result, std::size_t count);
-
-bool record_handler(RouteNode const& node, http::Method method, std::size_t count,
-                    MatchResult& result) {
-    auto const method_index = static_cast<std::size_t>(method);
-    if (node.handlers[method_index] >= 0) {
-        result.route = node.handlers[method_index];
-        result.param_count = count;
-        return true;
-    }
-    auto const get_index = static_cast<std::size_t>(http::Method::get);
-    if (method == http::Method::head && node.handlers[get_index] >= 0) {
-        result.route = node.handlers[get_index];
-        result.param_count = count;
-        return true;
-    }
-    if (node.has_handlers()) {
-        result.mismatch = &node;
-    }
-    return false;
-}
-
-bool try_literal(RouteNode const& node, bool ci, std::string_view segment, SegmentSpan segments,
-                 std::size_t index, std::string_view path, http::Method method,
-                 std::string_view* values, MatchResult& result, std::size_t count) {
-    std::array<char, 128> buffer{};
-    auto const it = node.literals.find(literal_key(segment, ci, buffer));
-    if (it != node.literals.end()) {
-        match_node(*it->second, ci, segments, index + 1, path, method, values, result, count);
-        if (result.route >= 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool try_param(RouteNode const& node, bool ci, std::string_view segment, SegmentSpan segments,
-               std::size_t index, std::string_view path, http::Method method,
-               std::string_view* values, MatchResult& result, std::size_t count) {
-    if (node.param == nullptr || count >= kMaxRouteParams) {
-        return false;
-    }
-    bool const consumable = !segment.empty() && (node.param_constraint == nullptr ||
-                                                 node.param_constraint->matches(segment));
-    if (consumable) {
-        values[count] = segment;
-        match_node(*node.param, ci, segments, index + 1, path, method, values, result, count + 1);
-        if (result.route >= 0) {
-            return true;
-        }
-    }
-    if (node.param_optional) {
-        match_node(*node.param, ci, segments, index, path, method, values, result, count);
-        if (result.route >= 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void try_catch_all(RouteNode const& node, bool ci, std::string_view segment, SegmentSpan segments,
-                   std::string_view path, http::Method method, std::string_view* values,
-                   MatchResult& result, std::size_t count) {
-    (void)ci;
-    if (node.catch_all == nullptr || count >= kMaxRouteParams) {
-        return;
-    }
-    auto const offset = static_cast<std::size_t>(segment.data() - path.data());
-    values[count] = path.substr(offset);
-    match_node(*node.catch_all, ci, segments, segments.size(), path, method, values, result,
-               count + 1);
-}
-
-void match_node(RouteNode const& node, bool ci, SegmentSpan segments, std::size_t index,
-                std::string_view path, http::Method method, std::string_view* values,
-                MatchResult& result, std::size_t count) {
-    if (index == segments.size()) {
-        if (record_handler(node, method, count, result)) {
-            return;
-        }
-        if (node.param != nullptr && node.param_optional && count < kMaxRouteParams) {
-            match_node(*node.param, ci, segments, index, path, method, values, result, count);
-        }
-        return;
-    }
-
-    auto const segment = segments[index];
-    if (try_literal(node, ci, segment, segments, index, path, method, values, result, count)) {
-        return;
-    }
-    if (try_param(node, ci, segment, segments, index, path, method, values, result, count)) {
-        return;
-    }
-    try_catch_all(node, ci, segment, segments, path, method, values, result, count);
-}
-
-std::string allow_header(RouteNode const& node) {
-    std::string allow;
-    for (std::size_t method = 0; method < kMethodCount; ++method) {
-        if (node.handlers[method] >= 0) {
-            if (!allow.empty()) {
-                allow += ", ";
-            }
-            allow += http::to_string(static_cast<http::Method>(method));
-        }
-    }
-    return allow;
-}
-
-fw::Result<void> compile_one(CompiledTable& table, PendingRoute const& route,
-                             std::vector<Middleware> const& middleware, bool case_insensitive) {
-    auto const segments = route.pattern.segments();
-    for (std::size_t i = 0; i + 1 < segments.size(); ++i) {
-        if (segments[i].is_catch_all()) {
-            return std::unexpected{fw::make_error_code(fw::Errc::invalid_argument)};
-        }
-    }
-
-    RouteNode* node = &table.root;
-    std::vector<std::string> names;
-    for (auto const& segment : segments) {
-        if (segment.is_catch_all()) {
-            if (node->catch_all == nullptr) {
-                node->catch_all = std::make_unique<RouteNode>();
-            }
-            node->catch_all_name = segment.text();
-            names.push_back(segment.text());
-            node = node->catch_all.get();
-        } else if (segment.is_parameter()) {
-            if (node->param != nullptr && node->param_name != segment.text()) {
-                return std::unexpected{fw::make_error_code(fw::Errc::already_exists)};
-            }
-            if (node->param == nullptr) {
-                node->param = std::make_unique<RouteNode>();
-                node->param_name = segment.text();
-                node->param_constraint = segment.constraint();
-                node->param_optional = segment.optional();
-            }
-            names.push_back(segment.text());
-            node = node->param.get();
-        } else {
-            node = literal_child(*node, normalize_literal(segment.text(), case_insensitive));
-        }
-    }
-
-    auto const method_index = static_cast<std::size_t>(route.method);
-    if (node->handlers[method_index] >= 0) {
-        return std::unexpected{fw::make_error_code(fw::Errc::already_exists)};
-    }
-    node->handlers[method_index] = static_cast<std::int32_t>(table.routes.size());
-
-    Handler handler = route.handler;
-    for (std::size_t i = middleware.size(); i-- > 0;) {
-        handler = middleware[i](std::move(handler));
-    }
-    table.routes.push_back(CompiledRoute{
-        route.name,
-        pattern_text(segments),
-        route.method,
-        std::move(names),
-        std::move(handler),
-    });
-    return {};
-}
-
-} // namespace
-
-struct Router::Impl {
-    std::vector<PendingRoute> pending;
-    std::vector<Middleware> middleware;
-    TrailingSlash trailing = TrailingSlash::strict;
-    bool case_insensitive = false;
-    std::atomic<std::shared_ptr<const CompiledTable>> snapshot{nullptr};
-};
-
-namespace {
-
 PathPattern require_pattern(std::string_view pattern) {
     auto parsed = PathPattern::parse(pattern);
     if (!parsed) {
@@ -381,7 +78,30 @@ PathPattern require_pattern(std::string_view pattern) {
     return std::move(*parsed);
 }
 
+std::string join_prefix(std::string prefix, std::string_view pattern) {
+    if (!prefix.empty() && prefix.back() == '/') {
+        prefix.pop_back();
+    }
+    prefix += pattern;
+    return prefix;
+}
+
+Handler apply_middleware(Handler handler, std::vector<Middleware> const& middleware) {
+    for (std::size_t i = middleware.size(); i-- > 0;) {
+        handler = middleware[i](std::move(handler));
+    }
+    return handler;
+}
+
 } // namespace
+
+struct Router::Impl {
+    std::vector<detail::PendingRoute> pending;
+    std::vector<Middleware> middleware;
+    TrailingSlash trailing = TrailingSlash::strict;
+    bool case_insensitive = false;
+    std::atomic<std::shared_ptr<const detail::CompiledTable>> snapshot{nullptr};
+};
 
 Router::Router() : impl_(std::make_unique<Impl>()) {}
 Router::~Router() = default;
@@ -390,7 +110,7 @@ Router& Router::operator=(Router&&) noexcept = default;
 
 void Router::add(http::Method method, PathPattern pattern, Handler handler, std::string name) {
     impl_->pending.push_back(
-        PendingRoute{method, std::move(pattern), std::move(handler), std::move(name)});
+        detail::PendingRoute{method, std::move(pattern), std::move(handler), std::move(name)});
 }
 
 void Router::get(std::string_view pattern, Handler handler) {
@@ -426,9 +146,10 @@ void Router::set_case_insensitive(bool enabled) noexcept {
 }
 
 fw::Result<void> Router::rebuild() {
-    auto table = std::make_shared<CompiledTable>();
+    auto table = std::make_shared<detail::CompiledTable>();
     for (auto const& pending : impl_->pending) {
-        if (auto result = compile_one(*table, pending, impl_->middleware, impl_->case_insensitive);
+        if (auto result =
+                detail::compile_one(*table, pending, impl_->middleware, impl_->case_insensitive);
             !result) {
             return result;
         }
@@ -456,13 +177,13 @@ fw::task<http::Response> Router::dispatch(http::Request const& request) const {
     auto const segments = std::span<std::string_view const>{storage.data(), segment_count};
 
     std::array<std::string_view, kMaxRouteParams> values{};
-    MatchResult result;
-    match_node(table->root, impl_->case_insensitive, segments, 0, path, request.method,
-               values.data(), result, 0);
+    detail::MatchResult result;
+    detail::match_node(table->root, impl_->case_insensitive, segments, 0, path, request.method,
+                       values.data(), result, 0);
 
     if (result.route < 0) {
         if (result.mismatch != nullptr) {
-            auto const allow = allow_header(*result.mismatch);
+            auto const allow = detail::allow_header(*result.mismatch);
             if (request.method == http::Method::options) {
                 http::Response response{204};
                 response.set_header("Allow", allow);
@@ -515,25 +236,6 @@ std::vector<RouteInfo> Router::routes() const {
 RouteGroup Router::group(std::string_view prefix) {
     return RouteGroup{*this, std::string{prefix}, {}};
 }
-
-namespace {
-
-std::string join_prefix(std::string prefix, std::string_view pattern) {
-    if (!prefix.empty() && prefix.back() == '/') {
-        prefix.pop_back();
-    }
-    prefix += pattern;
-    return prefix;
-}
-
-Handler apply_middleware(Handler handler, std::vector<Middleware> const& middleware) {
-    for (std::size_t i = middleware.size(); i-- > 0;) {
-        handler = middleware[i](std::move(handler));
-    }
-    return handler;
-}
-
-} // namespace
 
 RouteGroup::RouteGroup(Router& router, std::string prefix, std::vector<Middleware> middleware)
     : router_(&router), prefix_(std::move(prefix)), middleware_(std::move(middleware)) {}

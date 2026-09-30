@@ -109,6 +109,51 @@ TEST(Router, EnforcesParameterConstraint) {
     EXPECT_EQ(dispatch(router, make_request(fw::http::Method::get, "/users/abc")).status(), 404);
 }
 
+TEST(Router, MultipleConstrainedParamsSharePrefix) {
+    fw::server::Router router;
+    router.get("/users/{id:int}", fw::server::sync_handler([](fw::http::Request const&,
+                                                              fw::server::RouteContext& context) {
+                   auto const id = context.params().get("id").value_or("");
+                   return fw::http::Response::text(200, std::string{"id="} + std::string{id});
+               }));
+    router.get(
+        "/users/{slug:slug}",
+        fw::server::sync_handler([](fw::http::Request const&, fw::server::RouteContext& context) {
+            auto const slug = context.params().get("slug").value_or("");
+            return fw::http::Response::text(200, std::string{"slug="} + std::string{slug});
+        }));
+    ASSERT_TRUE(router.rebuild().has_value());
+
+    EXPECT_EQ(dispatch(router, make_request(fw::http::Method::get, "/users/42")).body(), "id=42");
+    EXPECT_EQ(dispatch(router, make_request(fw::http::Method::get, "/users/abc")).body(),
+              "slug=abc");
+}
+
+TEST(Router, RejectsAmbiguousUnconstrainedParams) {
+    fw::server::Router router;
+    router.get("/x/:a", text_handler("a"));
+    router.get("/x/:b", text_handler("b"));
+    EXPECT_FALSE(router.rebuild().has_value());
+}
+
+TEST(Router, ConstrainedParamTriedBeforeUnconstrained) {
+    fw::server::Router router;
+    router.get("/n/{id:int}", fw::server::sync_handler([](fw::http::Request const&,
+                                                          fw::server::RouteContext& context) {
+                   auto const id = context.params().get("id").value_or("");
+                   return fw::http::Response::text(200, std::string{"int="} + std::string{id});
+               }));
+    router.get("/n/{name}", fw::server::sync_handler([](fw::http::Request const&,
+                                                        fw::server::RouteContext& context) {
+                   auto const name = context.params().get("name").value_or("");
+                   return fw::http::Response::text(200, std::string{"str="} + std::string{name});
+               }));
+    ASSERT_TRUE(router.rebuild().has_value());
+
+    EXPECT_EQ(dispatch(router, make_request(fw::http::Method::get, "/n/9")).body(), "int=9");
+    EXPECT_EQ(dispatch(router, make_request(fw::http::Method::get, "/n/x")).body(), "str=x");
+}
+
 TEST(Router, CapturesCatchAll) {
     fw::server::Router router;
     auto pattern = fw::server::PathPattern::from_segments(

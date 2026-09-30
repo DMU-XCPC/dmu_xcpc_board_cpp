@@ -65,12 +65,16 @@ private:
     bool optional_;
 };
 
-// A route pattern parsed into route segment objects.
+// A route pattern parsed into route segment objects. Supported syntax:
+//   /a/b          literal
+//   /u/:id        parameter (also `/u/{id}`)
+//   /u/{id:int}   named constraint (int / uuid / slug)
+//   /u/{id:/re/}  inline PCRE2 regex constraint
+//   /files/{p:*}  catch-all, must be the last segment (also `*p`)
+//   /u/{id?}      optional segment
+// `from_segments` builds patterns programmatically.
 class PathPattern {
 public:
-    // Basic parser: literal segments and `:name` parameters. More syntax
-    // (constraints, catch-all, optional) is added by a later parser; use
-    // `from_segments` to build richer patterns in the meantime.
     [[nodiscard]] static fw::Result<PathPattern> parse(std::string_view path);
     [[nodiscard]] static PathPattern from_segments(std::vector<RouteSegment> segments);
 
