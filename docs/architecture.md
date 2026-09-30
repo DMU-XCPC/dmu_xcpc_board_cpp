@@ -58,17 +58,28 @@ senders by way of stdexec's `<exec/asio/...>` integration:
 
 ## The HTTP layer
 
-`framework/http` owns request parsing, request/response models and response
-serialization; it exposes no parser types.
+`framework/http` owns request parsing/serialization, response parsing,
+request/response models and gzip decoding; it exposes no parser types.
 
 - `fw::http::parse_request(buffer, request)` returns `complete`, `incomplete`
   (read more and retry) or `error`, and reports how many bytes were consumed.
   It handles the request line, headers and a `Content-Length` body; chunked
   transfer encoding is rejected for now.
+- `fw::http::parse_response(buffer, response, head_request)` is the mirror
+  image: it reports a `BodyFraming` (`none`, `content_length`, `chunked` or
+  `until_close`) so the caller knows how to obtain the body, and decodes chunked
+  bodies itself.
 - `fw::http::Request` owns the method, target, path/query split, headers and
-  body, with a case-insensitive `header(name)` lookup.
+  body, with a case-insensitive `header(name)` lookup and `serialize()`.
 - `fw::http::Response` has a status, headers and body, plus `text(...)` /
-  `json(...)` helpers and `serialize()`.
+  `json(...)` / `redirect(...)` / `no_content()` helpers and `serialize()`.
+- `fw::http::Client` is an asynchronous HTTP/1.1 client returning
+  `fw::task<fw::Result<Response>>`. It keeps a small per-authority connection
+  pool (keep-alive reuse, idle expiry, one retry on a stale reused connection),
+  applies a per-request timeout, follows redirects and transparently decodes
+  gzip. Only plaintext HTTP is supported.
+- `fw::http::gzip_decompress(...)` decodes gzip streams (including concatenated
+  members) and is used by the client.
 
 `framework/server` provides `fw::server::Router` and `fw::server::Server`.
 
@@ -120,6 +131,7 @@ Chosen dependencies (phase 0):
 | I/O | Asio (submodule, pinned) | via `fw::net`, bridged with `<exec/asio>` |
 | HTTP parsing | picohttpparser (submodule, pinned) | wrapped by `fw::http`; chosen over llhttp, whose C is generated (needs `llparse`) |
 | Routing | own (`fw::server::Router`) | `:name` / `{name}` / `{name:constraint}` / `{name:*}` / `{name?}` |
+| Compression | zlib (system) | gzip response decoding in the HTTP client |
 | Logging | spdlog | wrapped by `fw::log` |
 | Configuration | toml++ (submodule) | wrapped by `fw::Config`, pimpl |
 | Testing | GoogleTest | tests only |
@@ -170,7 +182,8 @@ generate these schemas automatically later; no reflection is required now.
 framework/core        errors (fw::Result/fw::Error), logging, configuration
 framework/execution   fw::task and sender aliases (stdexec-facing)
 framework/net         Asio thread pool and async I/O senders (exec/asio-facing)
-framework/http        HTTP/1.1 parsing (picohttpparser), request/response types
+framework/http        HTTP/1.1 parsing, request/response types, gzip decoding and
+                      an async client (fw::http::Client)
 framework/server      routing (fw::server::Router) and, later, the connection loop
 apps/dashboard        composition root and entry point
 third_party/          git submodules (pinned)

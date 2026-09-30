@@ -31,7 +31,7 @@ framework/
   core/        error handling, logging, configuration, composition conventions
   execution/   fw::task + scheduler concepts (the only stdexec-facing layer)
   net/         Asio thread pool and async I/O senders (exec/asio-facing)
-  http/        HTTP/1.1 parsing and request/response types
+  http/        HTTP/1.1 parsing, request/response types and an async client
   server/      routing and the HTTP/1.1 server (accept loop + connections)
 apps/
   dashboard/   the service entry point
@@ -61,12 +61,14 @@ You need a C++23 compiler (GCC 14+ or Clang 18+ recommended). System
 dependencies:
 
 - `spdlog` and `fmt`
+- `zlib` (gzip response decoding)
+- `PCRE2` (route constraint regexes)
 - `GoogleTest` (tests only)
 
 On Arch Linux:
 
 ```sh
-sudo pacman -S --needed spdlog fmt gtest
+sudo pacman -S --needed spdlog fmt zlib pcre2 gtest
 ```
 
 `stdexec`, `toml++`, `asio` and `picohttpparser` are git submodules under

@@ -97,5 +97,6 @@ Prefer libraries already available in the environment. The dependency manifest
 is `xmake.lua` (single source of truth); keep `CMakeLists.txt` in sync.
 Third-party dependencies that are not packaged on the target systems
 (`stdexec`, `toml++`, `asio`, `picohttpparser`, `unordered_dense`) are git
-submodules under `third_party/`, pinned to exact commits. PCRE2 is expected as a
-system library. A local HTTP/SOCKS proxy may be required to fetch GitHub.
+submodules under `third_party/`, pinned to exact commits. PCRE2 and zlib are
+expected as system libraries. A local HTTP/SOCKS proxy may be required to
+fetch GitHub.
