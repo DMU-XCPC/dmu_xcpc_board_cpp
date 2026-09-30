@@ -57,6 +57,8 @@ public:
     [[nodiscard]] std::optional<std::string_view> header(std::string_view name) const;
     [[nodiscard]] bool has_header(std::string_view name) const;
 
+    [[nodiscard]] std::string serialize() const;
+
     void clear();
 };
 

@@ -63,6 +63,10 @@ void Response::set_body(std::string body) {
     body_ = std::move(body);
 }
 
+void Response::remove_header(std::string_view name) {
+    std::erase_if(headers_, [name](Header const& field) { return iequals(field.name, name); });
+}
+
 void Response::set_content_type(std::string value) {
     set_header("Content-Type", std::move(value));
 }

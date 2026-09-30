@@ -7,8 +7,10 @@ file(GLOB FW_HTTP_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c
 
 add_library(fw_http STATIC ${FW_HTTP_SOURCES})
 
+find_package(ZLIB REQUIRED)
+
 target_include_directories(fw_http PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-target_link_libraries(fw_http PUBLIC fw_options)
-target_link_libraries(fw_http PRIVATE picohttpparser)
+target_link_libraries(fw_http PUBLIC fw_core fw_net fw_options)
+target_link_libraries(fw_http PRIVATE picohttpparser ZLIB::ZLIB)

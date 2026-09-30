@@ -72,6 +72,44 @@ bool Request::has_header(std::string_view name) const {
     return header(name).has_value();
 }
 
+std::string Request::serialize() const {
+    std::string out;
+    out.reserve(128 + body.size());
+
+    out += to_string(method);
+    out += ' ';
+    if (!target.empty()) {
+        out += target;
+    } else {
+        out += path;
+        if (!query.empty()) {
+            out += '?';
+            out += query;
+        }
+    }
+    out += " HTTP/1.1\r\n";
+
+    bool has_content_length = false;
+    for (auto const& field : headers) {
+        if (iequals(field.name, "Content-Length")) {
+            has_content_length = true;
+        }
+        out += field.name;
+        out += ": ";
+        out += field.value;
+        out += "\r\n";
+    }
+    if (!has_content_length && !body.empty()) {
+        out += "Content-Length: ";
+        out += std::to_string(body.size());
+        out += "\r\n";
+    }
+
+    out += "\r\n";
+    out += body;
+    return out;
+}
+
 void Request::clear() {
     method = Method::get;
     target.clear();

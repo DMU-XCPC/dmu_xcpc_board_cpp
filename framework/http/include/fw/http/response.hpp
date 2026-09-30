@@ -20,6 +20,7 @@ public:
         status_ = status;
     }
     void set_header(std::string name, std::string value);
+    void remove_header(std::string_view name);
     void set_body(std::string body);
     void set_content_type(std::string value);
 

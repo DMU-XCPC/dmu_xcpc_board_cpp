@@ -62,3 +62,79 @@ TEST(HttpParser, RejectsChunkedEncoding) {
         "POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", request);
     EXPECT_EQ(result.state, fw::http::ParseState::error);
 }
+
+TEST(HttpResponseParser, ParsesContentLengthResponse) {
+    std::string const raw = "HTTP/1.1 200 OK\r\n"
+                            "Content-Type: application/json\r\n"
+                            "Content-Length: 15\r\n"
+                            "\r\n"
+                            R"({"status":"ok"})";
+    fw::http::Response response;
+
+    auto const result = fw::http::parse_response(raw, response);
+    ASSERT_EQ(result.state, fw::http::ParseState::complete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::content_length);
+    EXPECT_EQ(result.consumed, raw.size());
+    EXPECT_EQ(response.status(), 200);
+    EXPECT_EQ(response.body(), R"({"status":"ok"})");
+    EXPECT_EQ(response.header("content-type").value(), "application/json");
+}
+
+TEST(HttpResponseParser, WaitsForContentLengthBody) {
+    fw::http::Response response;
+    auto const result =
+        fw::http::parse_response("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nab", response);
+    EXPECT_EQ(result.state, fw::http::ParseState::incomplete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::content_length);
+}
+
+TEST(HttpResponseParser, DecodesChunkedBody) {
+    std::string const raw = "HTTP/1.1 200 OK\r\n"
+                            "Transfer-Encoding: chunked\r\n"
+                            "\r\n"
+                            "5\r\nhello\r\n"
+                            "6\r\n world\r\n"
+                            "0\r\n\r\n";
+    fw::http::Response response;
+
+    auto const result = fw::http::parse_response(raw, response);
+    ASSERT_EQ(result.state, fw::http::ParseState::complete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::chunked);
+    EXPECT_EQ(result.consumed, raw.size());
+    EXPECT_EQ(response.body(), "hello world");
+}
+
+TEST(HttpResponseParser, WaitsForChunkedBody) {
+    fw::http::Response response;
+    auto const result = fw::http::parse_response(
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel", response);
+    EXPECT_EQ(result.state, fw::http::ParseState::incomplete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::chunked);
+}
+
+TEST(HttpResponseParser, NoBodyForHeadRequests) {
+    std::string const raw = "HTTP/1.1 200 OK\r\nContent-Length: 15\r\n\r\n";
+    fw::http::Response response;
+
+    auto const result = fw::http::parse_response(raw, response, true);
+    ASSERT_EQ(result.state, fw::http::ParseState::complete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::none);
+    EXPECT_EQ(result.consumed, raw.size());
+    EXPECT_TRUE(response.body().empty());
+}
+
+TEST(HttpResponseParser, ReportsUntilCloseFraming) {
+    std::string const raw = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
+    fw::http::Response response;
+
+    auto const result = fw::http::parse_response(raw, response);
+    EXPECT_EQ(result.state, fw::http::ParseState::incomplete);
+    EXPECT_EQ(result.framing, fw::http::BodyFraming::until_close);
+    EXPECT_EQ(result.consumed, raw.size());
+}
+
+TEST(HttpResponseParser, RejectsMalformedStatusLine) {
+    fw::http::Response response;
+    auto const result = fw::http::parse_response("not a response\r\n\r\n", response);
+    EXPECT_EQ(result.state, fw::http::ParseState::error);
+}
